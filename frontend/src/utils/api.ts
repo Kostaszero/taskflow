@@ -88,6 +88,7 @@ export const users = {
 export const tasks = {
   list: (projectId: string, status?: string, assignee?: string) =>
     api.get(`/projects/${projectId}/tasks`, { params: { status, assignee } }),
+  get: (projectId: string, taskId: string) => api.get(`/projects/${projectId}/tasks/${taskId}`),
   create: (projectId: string, title: string, description?: string, priority?: string, assignee_id?: string, due_date?: string) =>
     api.post(`/projects/${projectId}/tasks`, { title, description, priority, assignee_id, due_date }),
   update: (id: string, updates: any) =>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { getApiErrorMessage, projects, tasks, users } from '../utils/api';
+import { getApiErrorMessage, tasks, users } from '../utils/api';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -30,8 +30,13 @@ interface Project {
   id: string;
   name: string;
   description: string | null;
-  tasks: Task[];
   assignable_users?: UserOption[];
+}
+
+interface TaskDetailResponse {
+  project: Project;
+  task: Task;
+  assignable_users: UserOption[];
 }
 
 interface EditFormData {
@@ -67,26 +72,28 @@ export const TaskDetailPage: React.FC = () => {
     const loadTask = async () => {
       try {
         setLoading(true);
-        const response = await projects.get(id!);
-        const loadedProject = response.data as Project;
-        const selectedTask = loadedProject.tasks.find((item: Task) => item.id === taskId) || null;
+        const response = await tasks.get(id!, taskId!);
+        const payload = response.data as TaskDetailResponse;
+        const loadedProject: Project = {
+          ...payload.project,
+          assignable_users: payload.assignable_users || [],
+        };
+        const selectedTask = payload.task;
 
         setProject(loadedProject);
         setTask(selectedTask);
-        if (selectedTask) {
-          const assigneeName = selectedTask.assignee_id
-            ? loadedProject.assignable_users?.find((userOption: UserOption) => userOption.id === selectedTask.assignee_id)?.name || ''
-            : '';
+        const assigneeName = selectedTask.assignee_id
+          ? loadedProject.assignable_users?.find((userOption: UserOption) => userOption.id === selectedTask.assignee_id)?.name || ''
+          : '';
 
-          setEditFormData({
-            title: selectedTask.title,
-            description: selectedTask.description || '',
-            priority: selectedTask.priority,
-            assignee_name: assigneeName,
-            due_date: selectedTask.due_date || '',
-            status: selectedTask.status,
-          });
-        }
+        setEditFormData({
+          title: selectedTask.title,
+          description: selectedTask.description || '',
+          priority: selectedTask.priority,
+          assignee_name: assigneeName,
+          due_date: selectedTask.due_date || '',
+          status: selectedTask.status,
+        });
         setError(null);
       } catch (err: any) {
         setError(getApiErrorMessage(err, 'Failed to load task'));
@@ -109,6 +116,20 @@ export const TaskDetailPage: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [editFormData.assignee_name, isAssigneeMenuOpen]);
+
+  const knownUsers = [...(project?.assignable_users || []), ...assigneeSuggestions].reduce<Record<string, UserOption>>(
+    (lookup, userOption: UserOption) => {
+      lookup[userOption.id] = userOption;
+      return lookup;
+    },
+    {}
+  );
+
+  const knownUsersByIdentity = Object.values(knownUsers).reduce<Record<string, UserOption>>((lookup, userOption: UserOption) => {
+    lookup[userOption.name.toLowerCase()] = userOption;
+    lookup[userOption.email.toLowerCase()] = userOption;
+    return lookup;
+  }, {});
 
   const mergeKnownUsers = (incomingUsers: UserOption[]) => {
     if (incomingUsers.length === 0) {
@@ -161,7 +182,7 @@ export const TaskDetailPage: React.FC = () => {
       return 'Unassigned';
     }
 
-    const match = project?.assignable_users?.find((userOption: UserOption) => userOption.id === task.assignee_id);
+    const match = knownUsers[task.assignee_id];
     return match ? `${match.name} (${match.email})` : 'Assigned';
   };
 
@@ -170,7 +191,7 @@ export const TaskDetailPage: React.FC = () => {
       return 'Unknown';
     }
 
-    const match = project?.assignable_users?.find((userOption: UserOption) => userOption.id === userId);
+    const match = knownUsers[userId];
     return match ? `${match.name} (${match.email})` : 'Unknown';
   };
 
@@ -185,15 +206,7 @@ export const TaskDetailPage: React.FC = () => {
       return null;
     }
 
-    const allKnownUsers = [...(project?.assignable_users || []), ...assigneeSuggestions];
-    const uniqueUsers = Array.from(new Map(allKnownUsers.map((userOption: UserOption) => [userOption.id, userOption])).values());
-
-    const match = uniqueUsers.find((userOption: UserOption) => {
-      const normalizedValue = trimmedValue.toLowerCase();
-      return userOption.name.toLowerCase() === normalizedValue || userOption.email.toLowerCase() === normalizedValue;
-    });
-
-    return match?.id || null;
+    return knownUsersByIdentity[trimmedValue.toLowerCase()]?.id || null;
   };
 
   const getMatchingUsers = (query: string) => {
@@ -227,7 +240,7 @@ export const TaskDetailPage: React.FC = () => {
     }
 
     const assigneeName = task.assignee_id
-      ? project?.assignable_users?.find((userOption: UserOption) => userOption.id === task.assignee_id)?.name || ''
+      ? knownUsers[task.assignee_id]?.name || ''
       : '';
 
     setEditFormData({
@@ -294,16 +307,6 @@ export const TaskDetailPage: React.FC = () => {
       const updatedTask = response.data as Task;
 
       setTask(updatedTask);
-      setProject((currentProject: Project | null) => {
-        if (!currentProject) {
-          return currentProject;
-        }
-
-        return {
-          ...currentProject,
-          tasks: currentProject.tasks.map((item: Task) => (item.id === updatedTask.id ? updatedTask : item)),
-        };
-      });
       setIsEditing(false);
       setIsAssigneeMenuOpen(false);
       setAssigneeSuggestions([]);
@@ -326,6 +329,8 @@ export const TaskDetailPage: React.FC = () => {
   if (!project || !task) {
     return <div className="p-8 text-center">Task not found</div>;
   }
+
+  const matchingUsers = getMatchingUsers(editFormData.assignee_name);
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -386,6 +391,53 @@ export const TaskDetailPage: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-6">
             <section>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Workflow</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Status</p>
+                  {isEditing ? (
+                    <select
+                      value={editFormData.status}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditFormData((current: EditFormData) => ({ ...current, status: e.target.value as EditFormData['status'] }))}
+                      className="mt-2 flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                    >
+                      <option value="todo">To Do</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="done">Done</option>
+                    </select>
+                  ) : (
+                    <div className="mt-2">
+                      <Badge className="bg-slate-100 text-slate-700">{getStatusLabel(task.status)}</Badge>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Priority</p>
+                  {isEditing ? (
+                    <select
+                      value={editFormData.priority}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditFormData((current: EditFormData) => ({ ...current, priority: e.target.value as EditFormData['priority'] }))}
+                      className="mt-2 flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  ) : (
+                    <div className="mt-2">
+                      <Badge className={`${
+                        task.priority === 'high' ? 'bg-red-100 text-red-700' :
+                        task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-green-100 text-green-700'
+                      }`}>
+                        {task.priority}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+            <section>
               <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Description</h2>
               {isEditing ? (
                 <Textarea
@@ -410,48 +462,6 @@ export const TaskDetailPage: React.FC = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Status</p>
-                {isEditing ? (
-                  <select
-                    value={editFormData.status}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditFormData((current: EditFormData) => ({ ...current, status: e.target.value as EditFormData['status'] }))}
-                    className="mt-2 flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-                  >
-                    <option value="todo">To Do</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="done">Done</option>
-                  </select>
-                ) : (
-                  <div className="mt-2">
-                    <Badge className="bg-slate-100 text-slate-700">{getStatusLabel(task.status)}</Badge>
-                  </div>
-                )}
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Priority</p>
-                {isEditing ? (
-                  <select
-                    value={editFormData.priority}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEditFormData((current: EditFormData) => ({ ...current, priority: e.target.value as EditFormData['priority'] }))}
-                    className="mt-2 flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
-                ) : (
-                  <div className="mt-2">
-                    <Badge className={`${
-                      task.priority === 'high' ? 'bg-red-100 text-red-700' :
-                      task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-green-100 text-green-700'
-                    }`}>
-                      {task.priority}
-                    </Badge>
-                  </div>
-                )}
-              </div>
-              <div>
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Assignee</p>
                 {isEditing ? (
                   <div className="mt-2 space-y-2">
@@ -467,8 +477,8 @@ export const TaskDetailPage: React.FC = () => {
                     />
                     {isAssigneeMenuOpen && editFormData.assignee_name.trim() && (
                       <div className="rounded-md border border-slate-300 bg-white shadow-md max-h-48 overflow-y-auto">
-                        {getMatchingUsers(editFormData.assignee_name).length > 0
-                          ? getMatchingUsers(editFormData.assignee_name).map((userOption: UserOption, index: number) => (
+                        {matchingUsers.length > 0
+                          ? matchingUsers.map((userOption: UserOption, index: number) => (
                               <button
                                 key={userOption.id}
                                 type="button"
@@ -476,7 +486,7 @@ export const TaskDetailPage: React.FC = () => {
                                 onClick={() => selectAssignee(userOption.name)}
                                 className={`w-full text-left px-3 py-2 text-sm transition ${
                                   editFormData.assignee_name === userOption.name ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-100'
-                                } ${index !== getMatchingUsers(editFormData.assignee_name).length - 1 ? 'border-b border-slate-200' : ''}`}
+                                } ${index !== matchingUsers.length - 1 ? 'border-b border-slate-200' : ''}`}
                               >
                                 <div className="font-medium">{userOption.name}</div>
                                 <div className="text-xs text-slate-500">{userOption.email}</div>

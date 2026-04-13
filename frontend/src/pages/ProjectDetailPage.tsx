@@ -142,6 +142,20 @@ export const ProjectDetailPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [editFormData.assignee_name, isEditAssigneeMenuOpen]);
 
+  const usersById = userOptions.reduce<Record<string, UserOption>>((lookup: Record<string, UserOption>, userOption: UserOption) => {
+    lookup[userOption.id] = userOption;
+    return lookup;
+  }, {});
+
+  const usersByIdentity = [...userOptions, ...createAssigneeSuggestions, ...editAssigneeSuggestions].reduce<Record<string, UserOption>>(
+    (lookup: Record<string, UserOption>, userOption: UserOption) => {
+      lookup[userOption.name.toLowerCase()] = userOption;
+      lookup[userOption.email.toLowerCase()] = userOption;
+      return lookup;
+    },
+    {}
+  );
+
   const resolveAssigneeId = (value: string) => {
     const trimmedValue = value.trim();
 
@@ -149,15 +163,7 @@ export const ProjectDetailPage: React.FC = () => {
       return null;
     }
 
-    const searchableUsers = [...userOptions, ...createAssigneeSuggestions, ...editAssigneeSuggestions];
-    const uniqueUsers = Array.from(new Map(searchableUsers.map((userOption: UserOption) => [userOption.id, userOption])).values());
-
-    const match = uniqueUsers.find((userOption: UserOption) => {
-      const normalizedValue = trimmedValue.toLowerCase();
-      return userOption.name.toLowerCase() === normalizedValue || userOption.email.toLowerCase() === normalizedValue;
-    });
-
-    return match?.id || null;
+    return usersByIdentity[trimmedValue.toLowerCase()]?.id || null;
   };
 
   const getMatchingUsers = (query: string, suggestions: UserOption[]) => {
@@ -179,6 +185,41 @@ export const ProjectDetailPage: React.FC = () => {
       .slice(0, 8);
   };
 
+  const upsertTaskInProject = (updatedTask: Task) => {
+    setProject((currentProject: Project | null) => {
+      if (!currentProject) {
+        return currentProject;
+      }
+
+      const existingTaskIndex = currentProject.tasks.findIndex((task: Task) => task.id === updatedTask.id);
+
+      if (existingTaskIndex === -1) {
+        return {
+          ...currentProject,
+          tasks: [updatedTask, ...currentProject.tasks],
+        };
+      }
+
+      return {
+        ...currentProject,
+        tasks: currentProject.tasks.map((task: Task) => (task.id === updatedTask.id ? updatedTask : task)),
+      };
+    });
+  };
+
+  const removeTaskFromProject = (taskId: string) => {
+    setProject((currentProject: Project | null) => {
+      if (!currentProject) {
+        return currentProject;
+      }
+
+      return {
+        ...currentProject,
+        tasks: currentProject.tasks.filter((task: Task) => task.id !== taskId),
+      };
+    });
+  };
+
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -189,7 +230,7 @@ export const ProjectDetailPage: React.FC = () => {
         return;
       }
 
-      await tasks.create(
+      const response = await tasks.create(
         id!,
         formData.title,
         formData.description,
@@ -197,11 +238,15 @@ export const ProjectDetailPage: React.FC = () => {
         assigneeId || undefined,
         formData.due_date || undefined,
       );
+      const createdTask = response.data as Task;
+
+      upsertTaskInProject(createdTask);
+
       setFormData({ title: '', description: '', priority: 'medium', assignee_name: '', due_date: '' });
       setShowTaskForm(false);
       setIsCreateAssigneeMenuOpen(false);
       setCreateAssigneeSuggestions([]);
-      await loadProject();
+      setError(null);
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to create task'));
     }
@@ -216,7 +261,7 @@ export const ProjectDetailPage: React.FC = () => {
 
   const openEditModal = (task: Task) => {
     const assigneeName = task.assignee_id
-      ? userOptions.find((u: UserOption) => u.id === task.assignee_id)?.name || ''
+      ? usersById[task.assignee_id]?.name || ''
       : '';
     setEditingTask(task);
     setEditFormData({
@@ -274,12 +319,15 @@ export const ProjectDetailPage: React.FC = () => {
         return;
       }
 
-      await tasks.update(editingTask.id, updates);
+      const response = await tasks.update(editingTask.id, updates);
+      const updatedTask = response.data as Task;
+
+      upsertTaskInProject(updatedTask);
 
       setEditingTask(null);
       setIsEditAssigneeMenuOpen(false);
       setEditAssigneeSuggestions([]);
-      await loadProject();
+      setError(null);
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to update task'));
     }
@@ -308,14 +356,15 @@ export const ProjectDetailPage: React.FC = () => {
       return 'Unassigned';
     }
 
-    const match = userOptions.find((userOption: UserOption) => userOption.id === assigneeId);
+    const match = usersById[assigneeId];
     return match ? match.name : 'Assigned';
   };
 
   const handleUpdateTaskStatus = async (taskId: string, newStatus: string) => {
     try {
-      await tasks.update(taskId, { status: newStatus });
-      await loadProject();
+      const response = await tasks.update(taskId, { status: newStatus });
+      upsertTaskInProject(response.data as Task);
+      setError(null);
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to update task'));
     }
@@ -325,7 +374,8 @@ export const ProjectDetailPage: React.FC = () => {
     if (!window.confirm('Delete this task?')) return;
     try {
       await tasks.delete(taskId);
-      await loadProject();
+      removeTaskFromProject(taskId);
+      setError(null);
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to delete task'));
     }
@@ -334,15 +384,44 @@ export const ProjectDetailPage: React.FC = () => {
   if (loading) return <div className="p-8 text-center">Loading project...</div>;
   if (!project) return <div className="p-8 text-center">Project not found</div>;
 
-  const filteredTasks = selectedStatusFilter
-    ? project.tasks.filter((task: Task) => task.status === selectedStatusFilter)
-    : project.tasks;
+  const taskSummary = project.tasks.reduce<{
+    filteredTasks: Task[];
+    statusCounts: {
+      todo: number;
+      in_progress: number;
+      done: number;
+    };
+  }>(
+    (summary: {
+      filteredTasks: Task[];
+      statusCounts: {
+        todo: number;
+        in_progress: number;
+        done: number;
+      };
+    }, task: Task) => {
+      summary.statusCounts[task.status] += 1;
 
-  const statusCounts = {
-    todo: project.tasks.filter((task: Task) => task.status === 'todo').length,
-    in_progress: project.tasks.filter((task: Task) => task.status === 'in_progress').length,
-    done: project.tasks.filter((task: Task) => task.status === 'done').length,
-  };
+      if (!selectedStatusFilter || task.status === selectedStatusFilter) {
+        summary.filteredTasks.push(task);
+      }
+
+      return summary;
+    },
+    {
+      filteredTasks: [] as Task[],
+      statusCounts: {
+        todo: 0,
+        in_progress: 0,
+        done: 0,
+      },
+    }
+  );
+
+  const { filteredTasks, statusCounts } = taskSummary;
+
+  const createMatchingUsers = getMatchingUsers(formData.assignee_name, createAssigneeSuggestions);
+  const editMatchingUsers = getMatchingUsers(editFormData.assignee_name, editAssigneeSuggestions);
 
   const getStatusLabel = (status: string) => {
     return status === 'in_progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1);
@@ -435,8 +514,8 @@ export const ProjectDetailPage: React.FC = () => {
                 </div>
                 {isCreateAssigneeMenuOpen && formData.assignee_name.trim() && (
                   <div className="rounded-md border border-slate-300 bg-white shadow-md max-h-40 overflow-y-auto">
-                    {getMatchingUsers(formData.assignee_name, createAssigneeSuggestions).length > 0
-                      ? getMatchingUsers(formData.assignee_name, createAssigneeSuggestions).map((userOption: UserOption, index: number) => (
+                    {createMatchingUsers.length > 0
+                      ? createMatchingUsers.map((userOption: UserOption, index: number) => (
                           <button
                             key={userOption.id}
                             type="button"
@@ -445,7 +524,7 @@ export const ProjectDetailPage: React.FC = () => {
                             className={`w-full text-left px-3 py-2 text-sm transition ${
                               formData.assignee_name === userOption.name ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-100'
                             } ${
-                              index !== getMatchingUsers(formData.assignee_name, createAssigneeSuggestions).length - 1 ? 'border-b border-slate-200' : ''
+                              index !== createMatchingUsers.length - 1 ? 'border-b border-slate-200' : ''
                             }`}
                           >
                             <div className="font-medium">{userOption.name}</div>
@@ -669,8 +748,8 @@ export const ProjectDetailPage: React.FC = () => {
                   </div>
                   {isEditAssigneeMenuOpen && editFormData.assignee_name.trim() && (
                     <div className="rounded-md border border-slate-300 bg-white shadow-md max-h-40 overflow-y-auto">
-                      {getMatchingUsers(editFormData.assignee_name, editAssigneeSuggestions).length > 0
-                        ? getMatchingUsers(editFormData.assignee_name, editAssigneeSuggestions).map((userOption: UserOption, index: number) => (
+                      {editMatchingUsers.length > 0
+                        ? editMatchingUsers.map((userOption: UserOption, index: number) => (
                             <button
                               key={userOption.id}
                               type="button"
@@ -679,7 +758,7 @@ export const ProjectDetailPage: React.FC = () => {
                               className={`w-full text-left px-3 py-2 text-sm transition ${
                                 editFormData.assignee_name === userOption.name ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-100'
                               } ${
-                                index !== getMatchingUsers(editFormData.assignee_name, editAssigneeSuggestions).length - 1 ? 'border-b border-slate-200' : ''
+                                index !== editMatchingUsers.length - 1 ? 'border-b border-slate-200' : ''
                               }`}
                             >
                               <div className="font-medium">{userOption.name}</div>

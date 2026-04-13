@@ -40,6 +40,67 @@ router.get('/projects/:projectId/tasks', async (req: Request, res: Response, nex
   }
 });
 
+// GET /projects/:id/tasks/:taskId
+router.get('/projects/:projectId/tasks/:taskId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, taskId } = req.params;
+
+    const projectResult = await db.query(
+      'SELECT id, name, description, owner_id FROM projects WHERE id = $1',
+      [projectId]
+    );
+
+    if (projectResult.rows.length === 0) {
+      return res.status(404).json({ error: 'project not found' });
+    }
+
+    const taskResult = await db.query(
+      'SELECT * FROM tasks WHERE id = $1 AND project_id = $2',
+      [taskId, projectId]
+    );
+
+    if (taskResult.rows.length === 0) {
+      return res.status(404).json({ error: 'task not found' });
+    }
+
+    const project = projectResult.rows[0] as {
+      id: string;
+      name: string;
+      description: string | null;
+      owner_id: string | null;
+    };
+    const task = taskResult.rows[0] as {
+      assignee_id: string | null;
+      created_by: string | null;
+    };
+
+    const relatedUserIds = [project.owner_id, task.assignee_id, task.created_by].filter(
+      (value): value is string => Boolean(value)
+    );
+
+    let assignableUsers: Array<{ id: string; name: string; email: string; created_at: string }> = [];
+    if (relatedUserIds.length > 0) {
+      const usersResult = await db.query(
+        'SELECT id, name, email, created_at FROM users WHERE id = ANY($1::uuid[]) ORDER BY name ASC',
+        [Array.from(new Set(relatedUserIds))]
+      );
+      assignableUsers = usersResult.rows;
+    }
+
+    return res.json({
+      project: {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+      },
+      task: taskResult.rows[0],
+      assignable_users: assignableUsers,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /projects/:id/tasks
 router.post('/projects/:projectId/tasks', async (req: Request, res: Response, next: NextFunction) => {
   try {
