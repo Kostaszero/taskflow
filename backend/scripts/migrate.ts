@@ -41,3 +41,7 @@ const runMigrations = async () => {
 };
 
 export default runMigrations;
+
+runMigrations()
+  .then(() => process.exit(0))
+  .catch(() => process.exit(1));

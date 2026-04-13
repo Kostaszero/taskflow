@@ -459,15 +459,3 @@ docker compose exec postgres psql -U taskflow -d taskflow -c "SELECT * FROM user
 - ✅ Graceful shutdown on termination signal
 
 ---
-
-## License
-
-MIT
-
----
-
-## Questions?
-
-If you're reviewing this: each decision was made with the constraint of **shipping a complete product in 3–5 hours** while maintaining code quality and honest architectural tradeoffs. See "What You'd Do With More Time" for the roadmap.
-
-**Made with ❤️ for the interview process.**
