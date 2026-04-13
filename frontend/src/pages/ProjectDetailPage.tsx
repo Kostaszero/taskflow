@@ -8,6 +8,8 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 
 interface Task {
+  id: string;
+  title: string;
   description: string | null;
   status: 'todo' | 'in_progress' | 'done';
   priority: 'low' | 'medium' | 'high';
@@ -82,9 +84,10 @@ export const ProjectDetailPage: React.FC = () => {
   const resolveAssigneeId = (value: string) => {
     const trimmedValue = value.trim();
 
+    if (!trimmedValue) {
+      return null;
     }
 
-      const selectAssignee = (name: string, setter: (data: any) => void) => {
     const match = userOptions.find((userOption: UserOption) => {
       const normalizedValue = trimmedValue.toLowerCase();
       return userOption.name.toLowerCase() === normalizedValue || userOption.email.toLowerCase() === normalizedValue;
@@ -121,6 +124,14 @@ export const ProjectDetailPage: React.FC = () => {
       await tasks.create(
         id!,
         formData.title,
+        formData.description,
+        formData.priority,
+        assigneeId || undefined,
+        formData.due_date,
+      );
+      setFormData({ title: '', description: '', priority: 'medium', assignee_name: '', due_date: '' });
+      setShowTaskForm(false);
+      await loadProject();
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to create task'));
     }
