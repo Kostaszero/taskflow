@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { projects } from '../utils/api';
+import { getApiErrorMessage, projects } from '../utils/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -31,7 +31,7 @@ export const ProjectsPage: React.FC = () => {
       setProjectsList(response.data.projects || []);
       setError(null);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load projects');
+      setError(getApiErrorMessage(err, 'Failed to load projects'));
     } finally {
       setLoading(false);
     }
@@ -45,7 +45,7 @@ export const ProjectsPage: React.FC = () => {
       setShowCreateForm(false);
       await loadProjects();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create project');
+      setError(getApiErrorMessage(err, 'Failed to create project'));
     }
   };
 
@@ -55,7 +55,7 @@ export const ProjectsPage: React.FC = () => {
       await projects.delete(id);
       await loadProjects();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to delete project');
+      setError(getApiErrorMessage(err, 'Failed to delete project'));
     }
   };
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { auth } from '../utils/api';
+import { auth, getApiErrorMessage } from '../utils/api';
 import { useAuthContext } from '../hooks/useAuth';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -60,7 +60,7 @@ export const AuthPage: React.FC = () => {
       login(user, token);
       navigate('/projects');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'An error occurred');
+      setError(getApiErrorMessage(err, 'An error occurred'));
     } finally {
       setLoading(false);
     }

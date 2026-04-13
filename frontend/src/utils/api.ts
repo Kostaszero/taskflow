@@ -29,6 +29,33 @@ api.interceptors.response.use(
   }
 );
 
+const toReadableLabel = (value: string) =>
+  value
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+export const getApiErrorMessage = (error: any, fallback = 'Something went wrong') => {
+  const data = error?.response?.data;
+
+  if (data?.fields && typeof data.fields === 'object') {
+    const fieldMessages = Object.entries(data.fields)
+      .filter(([, message]) => typeof message === 'string' && message.trim().length > 0)
+      .map(([field, message]) => `${toReadableLabel(field)} ${String(message).trim()}`);
+
+    if (fieldMessages.length > 0) {
+      return fieldMessages.join('. ');
+    }
+  }
+
+  if (typeof data?.error === 'string' && data.error.trim().length > 0) {
+    return data.error;
+  }
+
+  return fallback;
+};
+
 export interface AuthResponse {
   token: string;
   user: { id: string; name: string; email: string };

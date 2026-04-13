@@ -23,7 +23,7 @@ const AppShell: React.FC = () => {
               </Link>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm text-slate-600">Hello, <b>{user.name}</b>!</span>
+              <span className="text-sm text-slate-600">Hello, <b>{user.name}!</b></span>
               <button
                 onClick={() => {
                   logout();
