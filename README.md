@@ -1,9 +1,17 @@
-# TaskFlow — Task Management System
+# TaskFlow
 
-A full-stack task management application built with Node.js, Express, React, and PostgreSQL. Users can register, log in, create projects, assign tasks, and track project progress with a clean, responsive UI.
+TaskFlow is a full-stack task management application I built as part of this take-home assignment. It lets users register, create projects, manage tasks, and track progress - backed by a proper REST API with authentication, relational data modelling, and a responsive UI that tries to feel closer to a real product than a code exercise.
 
-**Demo Site:** [http://localhost:3000](http://localhost:3000)  
-**API Docs:** [http://localhost:3001](http://localhost:3001)
+**Frontend:** [http://localhost:3000](http://localhost:3000)  
+**API:** [http://localhost:3001](http://localhost:3001)
+
+---
+
+## Overview
+
+I aimed to ship something I'd actually be comfortable putting in front of users, not just something that satisfies the spec on paper. That meant going beyond the minimum: the UI supports inline task editing, a dedicated task detail page, debounced server-side assignee search, and optimistic state updates that avoid unnecessary round-trips. All of this is covered in more detail in the Architecture Decisions section.
+
+The core flows are all covered: registration and login with JWTs, full project and task CRUD, status filtering, assignee management, and a clean responsive layout across mobile and desktop.
 
 ---
 
@@ -12,57 +20,45 @@ A full-stack task management application built with Node.js, Express, React, and
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | React 18 + TypeScript + Vite |
+| **UI Components** | shadcn/ui (Radix UI primitives + Tailwind CSS) |
 | **Styling** | Tailwind CSS + PostCSS |
 | **Backend** | Node.js + Express + TypeScript |
 | **Database** | PostgreSQL 16 |
-| **Auth** | JWT (24-hour expiry) + bcryptjs |
+| **Auth** | JWT (24-hour expiry) + bcryptjs (cost 12) |
 | **Containerization** | Docker + Docker Compose |
 
 ---
 
-## Quick Start
+## Running Locally
 
-### Prerequisites
-- Docker & Docker Compose (that's it!)
-- No need to install Node, npm, or PostgreSQL separately
-
-### Running Locally
+The only prerequisite is Docker. Everything else — Node, PostgreSQL, migrations, seed data — runs inside the containers.
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/yourusername/taskflow
 cd taskflow
-
-# 2. Copy environment variables
 cp .env.example .env
-
-# 3. Start the full stack
 docker compose up
-
-# 4. Wait for services to be ready (~10 seconds)
-# Frontend: http://localhost:3000
-# API: http://localhost:3001
 ```
 
-**That's it!** The app will automatically:
-- Set up PostgreSQL
-- Run database migrations
-- Seed test data
-- Start the API server
-- Serve the React frontend
+That's all. On first boot, the API container automatically runs migrations and seeds the database. Once you see both services healthy in the logs, the app is ready:
+
+- **Frontend:** http://localhost:3000
+- **API:** http://localhost:3001
+
+Startup typically takes around 10 seconds for PostgreSQL to finish initialising.
 
 ---
 
 ## Test Credentials
 
-After the containers start, log in with:
+A test account is created during seeding so you can explore the app immediately without registering:
 
 ```
 Email:    test@example.com
 Password: password123
 ```
 
-You'll see a pre-populated project with sample tasks to demonstrate full functionality.
+The seed also creates a project with a few tasks in different states so you can see the full UI without having to set anything up manually.
 
 ---
 
@@ -84,7 +80,8 @@ taskflow/
 │   │   └── routes/
 │   │       ├── auth.ts       # Register, Login
 │   │       ├── projects.ts   # CRUD projects
-│   │       └── tasks.ts      # CRUD tasks
+│   │       ├── tasks.ts      # CRUD tasks + single-task detail endpoint
+│   │       └── users.ts      # User list + /users/search?q= endpoint
 │   ├── migrations/
 │   │   └── 001_init_schema.sql
 │   ├── scripts/
@@ -98,16 +95,17 @@ taskflow/
 └── frontend/                  # React + Vite
     ├── src/
     │   ├── main.tsx          # React entry
-    │   ├── App.tsx           # Router + Layout
+    │   ├── App.tsx           # Router + Layout + ProtectedRoute
     │   ├── index.css         # Global styles
     │   ├── pages/
-    │   │   ├── AuthPage.tsx  # Login/Register
-    │   │   ├── ProjectsPage.tsx
-    │   │   └── ProjectDetailPage.tsx
+    │   │   ├── AuthPage.tsx          # Login/Register
+    │   │   ├── ProjectsPage.tsx      # Projects list + create
+    │   │   ├── ProjectDetailPage.tsx # Board: task list, filters, create/edit/delete
+    │   │   └── TaskDetailPage.tsx    # JIRA-style task detail with inline editing
     │   ├── hooks/
-    │   │   └── useAuth.ts    # Auth context
+    │   │   └── useAuth.ts    # Auth context + useAuthContext hook
     │   └── utils/
-    │       └── api.ts        # Axios client
+    │       └── api.ts        # Axios client with interceptors + typed API helpers
     ├── index.html
     ├── vite.config.ts
     ├── tailwind.config.js
@@ -121,107 +119,93 @@ taskflow/
 
 ## Architecture Decisions
 
-### 1. **Backend: Node.js/Express over Go**
-- **Why:** Same language as frontend (JavaScript) for unified full-stack thinking
-- **Tradeoff:** Go would be faster, but Express is industry-standard and the scope doesn't require Go's concurrency benefits
-- **Honest take:** For a 3–5 hour project, matching frontend language > raw performance
+I want to be transparent about the choices I made and why, rather than just listing the stack.
 
-### 2. **Frontend: Vite over Create React App**
-- **Why:** Vite is 10–30x faster for dev builds, smaller production bundle
-- **Tradeoff:** CRA is more familiar, but Vite is now industry standard and faster to iterate
-- **Honest take:** For this project, the DX win justifies the switch
+### Node.js/Express over Go
 
-### 3. **Styling: Tailwind CSS**
-- **Why:** No component library friction, responsive utilities built-in, professional look in minimal time
-- **Tradeoff:** Custom CSS or MUI would offer more control, but Tailwind delivers A+ UX faster
-- **Honest take:** Component libraries feel like overkill here; Tailwind strikes the right balance
+The assignment listed Go as preferred, and I considered it. I chose Node/Express because the entire stack is then one language — TypeScript end to end. That means a single mental model for types, error handling, and async patterns. At this scale, Go's concurrency advantages don't materialise, and a split-language codebase is harder to navigate for a reviewer with limited time. If this were a high-throughput service processing thousands of concurrent connections, the calculus changes.
 
-### 4. **Database Migrations: Plain SQL**
-- **Why:** Full transparency, no ORM magic, easy to review and audit
-- **Tradeoff:** ORMs (Prisma/TypeORM) would save code, but migrations are clearer without abstraction
-- **Honest take:** For a project this size, migrations should be readable by anyone
+### Vite over Create React App
 
-### 5. **Authentication: Stateless JWT**
-- **Why:** Scales horizontally, doesn't require session storage, RESTful by design
-- **Tradeoff:** Sessions would be simpler, but JWT is what professional APIs use
-- **Honest take:** JWT is the right choice for modern web applications
+Straightforward call. Vite's dev build is meaningfully faster, HMR is near-instant, and the production bundle is leaner. CRA has been effectively deprecated and I wouldn't start a new project with it today.
 
-### 6. **No Real-Time Features (by design)**
-- **Why:** HTTP polling is sufficient for a task tracker, WebSockets add complexity without clear ROI
-- **Tradeoff:** Real-time would be cooler, but adds 30% more code
-- **Honest take:** Bonus feature, but the core product doesn't need it to ship
+### shadcn/ui for components
+
+I chose shadcn/ui over MUI or Chakra because it's composable and unstyled at the primitive level — you get fully accessible Radix components that you style yourself with Tailwind. There's no runtime CSS-in-JS overhead, no theme system to fight, and the output looks like your design, not the library's. It's what teams like Vercel and Linear use in production, and I think it's the right default for new projects.
+
+### Plain SQL migrations over an ORM
+
+I went with raw SQL for migrations because they're transparent. Any engineer can read a `.sql` file, diff it, and understand exactly what changed. An ORM like Prisma is convenient during development but introduces a layer of abstraction between the code and the database that I think is easy to misuse, especially under time pressure.
+
+### Stateless JWT authentication
+
+Standard choice for a REST API. Tokens are self-contained, scale horizontally without session storage, and are straightforward to validate in middleware. The main limitation is revocation — you can't invalidate a token server-side without a denylist. For this scope, 24-hour expiry is a reasonable tradeoff and I've noted it explicitly rather than pretending it's not a limitation.
+
+### Optimistic UI — no full reloads after mutations
+
+Every task mutation (create, edit, status change, delete) updates local React state from the API response rather than re-fetching the entire project. This makes the UI feel responsive and eliminates unnecessary network traffic. The tradeoff is that concurrent edits by another user aren't reflected until navigation — acceptable without real-time support, and an honest limitation I'd address with WebSockets if this went further.
+
+### Server-side user search for assignee autocomplete
+
+Rather than loading all users into the client when a project page loads (which doesn't scale), the assignee input hits `GET /users/search?q=` with a 250ms debounce. The endpoint returns at most 50 results ordered by prefix relevance. This is the right architecture from day one — any real product has far more users than tasks, and front-loading all of them is a mistake you'd eventually have to fix.
+
+### No real-time updates
+
+WebSockets would make the product better, but they would also meaningfully increase the codebase — persistent connection management, reconnection logic, and server-side event fan-out. I made the call to build the core product solidly rather than ship a live-update feature that's half-done. It's at the top of my "what's next" list.
 
 ---
 
 ## API Reference
 
-All endpoints return `Content-Type: application/json`.
+All endpoints return `Content-Type: application/json`. All endpoints except auth require `Authorization: Bearer <token>`.
 
-### Authentication Endpoints
+### Authentication
 
 **POST `/auth/register`**
 ```json
 // Request
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "secure-password"
-}
+{ "name": "John Doe", "email": "john@example.com", "password": "secure-password" }
 
 // Response 201
-{
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "name": "John Doe",
-    "email": "john@example.com"
-  }
-}
+{ "token": "eyJ...", "user": { "id": "uuid", "name": "John Doe", "email": "john@example.com" } }
 ```
 
 **POST `/auth/login`**
 ```json
 // Request
-{
-  "email": "test@example.com",
-  "password": "password123"
-}
+{ "email": "test@example.com", "password": "password123" }
 
 // Response 200
-{
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": { "id": "...", "name": "Test User", "email": "test@example.com" }
-}
+{ "token": "eyJ...", "user": { "id": "uuid", "name": "Test User", "email": "test@example.com" } }
 ```
 
-### Projects Endpoints
+### Projects
 
-**GET `/projects`** — List all projects you own  
-```bash
-curl -H "Authorization: Bearer <token>" http://localhost:3001/projects
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/projects` | List projects the current user owns or has tasks in |
+| POST | `/projects` | Create a project (owner = current user) |
+| GET | `/projects/:id` | Project details + its tasks + related users |
+| PATCH | `/projects/:id` | Update name/description (owner only) |
+| DELETE | `/projects/:id` | Delete project + all tasks (owner only) |
+| GET | `/projects/:id/stats` | Task counts by status and assignee |
 
-**POST `/projects`** — Create a new project  
-```bash
-curl -X POST -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"My Project","description":"..."}' \
-  http://localhost:3001/projects
-```
+### Tasks
 
-**GET `/projects/:id`** — Get project details + all tasks  
-**PATCH `/projects/:id`** — Update project name/description (owner only)  
-**DELETE `/projects/:id`** — Delete project and all tasks (owner only)  
-**GET `/projects/:id/stats`** — Get task counts by status and assignee (bonus)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/projects/:id/tasks` | List tasks — supports `?status=` `?assignee=` `?page=` `?limit=` |
+| GET | `/projects/:id/tasks/:taskId` | Single task + project metadata + related users |
+| POST | `/projects/:id/tasks` | Create a task |
+| PATCH | `/tasks/:id` | Sparse update — only changed fields are sent |
+| DELETE | `/tasks/:id` | Delete (project owner or task creator only) |
 
-### Tasks Endpoints
+### Users
 
-**GET `/projects/:id/tasks?status=todo&assignee=<uuid>&page=1&limit=20`** — List tasks with optional filtering  
-**POST `/projects/:id/tasks`** — Create a task in project  
-**PATCH `/tasks/:id`** — Update task (title, status, priority, assignee, due_date)  
-**DELETE `/tasks/:id`** — Delete task
-
-All non-auth endpoints require `Authorization: Bearer <token>` header.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/users` | List all users |
+| GET | `/users/search?q=<term>&limit=<n>` | Search users by name or email (max 50, prefix-ordered) |
 
 ---
 
@@ -288,174 +272,106 @@ updated_at (TIMESTAMP)
 
 ---
 
-## Bonus Features Implemented
+## Pages & Routes
 
-✅ **Pagination** — `/projects` and `/projects/:id/tasks` support `?page=` and `?limit=`  
-✅ **Task Stats** — `GET /projects/:id/stats` returns task counts by status & assignee  
-✅ **Graceful Shutdown** — SIGTERM handling for clean container stops  
-✅ **Health Checks** — Docker healthchecks for both services  
-✅ **Multi-Stage Builds** — Smaller production Docker images  
-✅ **Structured Logging** — Pino logger for production-grade logging  
-✅ **Error Boundary** — Authentication redirect on 401  
+| Route | Component | Description |
+|-------|-----------|-------------|
+| `/login` | `AuthPage` | Login form with validation and error feedback |
+| `/register` | `AuthPage` | Registration form |
+| `/projects` | `ProjectsPage` | List all accessible projects, create new |
+| `/projects/:id` | `ProjectDetailPage` | Task board with status filter chips, task list, inline status toggle, create/edit/delete |
+| `/projects/:id/tasks/:taskId` | `TaskDetailPage` | Full task detail view: inline editing, status/priority controls, metadata sidebar with assignee and creator |
 
----
-
-## What You'd Do With More Time
-
-### High Impact (next sprint)
-1. **Real-time updates via WebSockets** — Task changes propagate instantly to other users viewing the project
-2. **Drag-and-drop task reordering** — Kanban-style column interaction for better UX
-3. **Task comments** — Allow team discussion on individual tasks
-4. **Email notifications** — Notify users when assigned a task or project is updated
-5. **Role-based access control (RBAC)** — Project member roles (Owner, Editor, Viewer) with permission matrix
-
-### Medium Impact
-6. **Search across projects/tasks** — Full-text search with filters
-7. **Task templates** — Create recurring task patterns (sprints, checklists)
-8. **Activity log** — See who changed what and when
-9. **Dark mode** — Persist theme preference
-10. **Mobile app** — React Native version using same backend
-
-### Quality & Ops
-11. **Integration tests** — Full auth + CRUD flow tests with Vitest
-12. **API rate limiting** — Prevent abuse, add request throttling middleware
-13. **File attachments** — Upload files to tasks (S3 integration)
-14. **Audit logging** — Track all mutations for compliance
-15. **Observability** — Prometheus metrics, Grafana dashboards
-16. **CD/CI pipeline** — GitHub Actions for automated testing and deployment
-
-### Why we didn't do these now
-- **Time constraint:** 3–5 hours is tight; focus on rock-solid core over half-baked extras
-- **Scope management:** WebSockets, attachments, and RBAC double the codebase
-- **User value:** A fast, stable task manager beats a feature-rich buggy one
-- **Honest assessment:** These are nice-to-haves; the core product ships without them
+Unauthenticated users are redirected to `/login`. Auth state is stored in `localStorage` and persists across page refreshes.
 
 ---
 
-## Running Tests
+## What I'd Do With More Time
 
-```bash
-# Unit tests (backend)
-docker compose exec api npm test
+These aren't things I didn't think of — they're deliberate cuts to stay within the intended scope.
 
-# Integration tests (backend)
-docker compose exec api npm run test:integration
-```
+**Highest priority:**
+- **Real-time updates** — WebSocket-based task sync so changes made by one user are immediately visible to others on the same project. The architecture is already set up for it; the missing piece is the connection layer.
+- **Optimistic rollback on error** — Right now, if a mutation fails after the optimistic update, the local state stays wrong until a page reload. Adding a revert step would make this production-grade.
+- **Request cancellation for search** — Stale debounced responses can currently overwrite newer results in the assignee input. A simple `AbortController` pattern fixes this.
 
-Currently includes example tests for auth and task endpoints. Expand with fixtures for full edge case coverage.
+**Also worth building:**
+- Integration tests covering the auth and task CRUD flows end to end
+- Role-based access: project member roles (Owner, Editor, Viewer) with a proper permission matrix
+- An activity log so you can see who changed what and when
+- Rate limiting on the API to prevent abuse
+- A CI pipeline (GitHub Actions) that runs linting, type-check, and tests on every PR
+
+I deliberately didn't include half-finished versions of any of these. A solid, working core is more useful to review than a lot of features that are 80% done.
+
+---
+
+## Bonus Features
+
+Beyond the required spec, I also shipped:
+
+- **Pagination** on task and project list endpoints (`?page=` and `?limit=`)
+- **Stats endpoint** — `GET /projects/:id/stats` with task counts by status and assignee
+- **Single-task fetch** — `GET /projects/:id/tasks/:taskId` returns only the data that page actually needs, instead of fetching the whole project
+- **Server-side assignee search** — `GET /users/search?q=` with 250ms debounce and prefix-ordered results; no bulk user loading
+- **Inline task editing** — full task detail page with editable fields, not just a modal
+- **Optimistic UI** — create, edit, status change, and delete all update local state instantly from the API response; no round-trip fetches
+- **Sparse PATCH** — task updates only send the fields that actually changed
+- **Graceful shutdown** — SIGTERM handling so containers stop cleanly
+- **Multi-stage Docker builds** — production images are minimal
+- **Structured logging** with Pino
+- **Global 401 handling** — Axios interceptor catches expired tokens and redirects to login automatically
 
 ---
 
 ## Development Workflow
 
-### Backend Development
-```bash
-# Terminal 1: Run with hot reload
-docker compose up api
+If you want to work on the code locally outside Docker:
 
-# Terminal 2: Run migrations (if you modify schema)
+```bash
+# Run migrations after schema changes
 docker compose exec api npm run migrate:up
 
-# Terminal 3: Seed new test data
+# Reseed the database
 docker compose exec api npm run seed
-```
 
-### Frontend Development
-```bash
-# Start dev server with hot refresh
-docker compose up frontend
-
-# App updates on file save
-# http://localhost:3000
-```
-
-### Database Access
-```bash
-# Connect to PostgreSQL
+# Access PostgreSQL directly
 docker compose exec postgres psql -U taskflow -d taskflow
-
-# List tables
-\dt
-
-# Exit
-\q
 ```
 
----
-
-## Deployment
-
-### Heroku Quick Deploy (example)
-```bash
-# Create app
-heroku create taskflow-myname
-
-# Set environment variables
-heroku config:set JWT_SECRET=<generate-random-string>
-
-# Deploy
-git push heroku main
-```
-
-### Self-Hosted (Docker)
-```bash
-# Pull image
-docker pull yourdomain/taskflow:latest
-
-# Run with .env file
-docker compose -f docker-compose.prod.yml up -d
-```
+Backend changes reload automatically with ts-node-dev. Frontend changes hot-reload via Vite.
 
 ---
 
 ## Troubleshooting
 
-**"Cannot connect to database"** — Postgres container takes ~10s to start. Docker Compose healthchecks wait automatically; if manual:
-```bash
-docker compose up postgres
-sleep 15
-docker compose up api
-```
+**"Cannot connect to database"** — PostgreSQL takes around 10 seconds to be ready on cold start. Docker Compose healthchecks handle this automatically. If you're running services manually, start postgres first and give it a moment before starting the API.
 
-**"Port 3000 already in use"** — Change in docker-compose.yml:
+**"Port 3000 already in use"** — Update the port mapping in `docker-compose.yml`:
 ```yaml
 ports:
-  - "3100:3000"  # Access on localhost:3100
+  - "3100:3000"
 ```
 
-**"Migrations not running"** — Check API logs:
+**"Migrations didn't run"** — Check the API logs:
 ```bash
 docker compose logs api
 ```
 
-**"Can't log in"** — Verify seed ran:
+**"Seed user not found"** — Verify the seed ran successfully:
 ```bash
-docker compose exec postgres psql -U taskflow -d taskflow -c "SELECT * FROM users;"
+docker compose exec postgres psql -U taskflow -d taskflow -c "SELECT email FROM users;"
 ```
 
 ---
 
-## Code Quality Notes
+## Security
 
-- **TypeScript:** Strict mode enabled (`strict: true`) — catches most errors at compile time
-- **Error Handling:** Centralized middleware for consistent error responses
-- **Environment Config:** All secrets via `.env`, never hardcoded
-- **Database:** Parameterized queries to prevent SQL injection
-- **API Design:** RESTful conventions, proper HTTP status codes, documented endpoints
-- **Frontend State:** React Context for auth, no prop drilling
-- **Styling:** Responsive design mobile-first, tested at 375px and 1280px widths
-
----
-
-## Security Checklist
-
-- ✅ Passwords hashed with bcryptjs (cost 12)
-- ✅ JWT tokens signed with secret from `.env`
-- ✅ CORS configured to whitelist `localhost:3000`
-- ✅ SQL injection protection via parameterized queries
-- ✅ No secrets hardcoded in source code
-- ✅ `.env` file ignored in git
-- ✅ 24-hour token expiry
-- ✅ Graceful shutdown on termination signal
+- Passwords hashed with bcryptjs at cost 12
+- JWTs signed with a secret loaded from `.env`, never hardcoded
+- CORS restricted to `localhost:3000`
+- All database queries parameterised — no string interpolation
+- `.env` is `.gitignore`d; `.env.example` with safe defaults is committed instead
+- Token expiry set to 24 hours
 
 ---
