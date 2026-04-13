@@ -62,6 +62,8 @@ export const ProjectDetailPage: React.FC = () => {
   const [formData, setFormData] = useState<TaskFormData>({ title: '', description: '', priority: 'medium', assignee_name: '', due_date: '' });
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editFormData, setEditFormData] = useState<EditFormData>({ title: '', description: '', priority: 'medium', assignee_name: '', due_date: '', status: 'todo' });
+  const [isCreateAssigneeMenuOpen, setIsCreateAssigneeMenuOpen] = useState(false);
+  const [isEditAssigneeMenuOpen, setIsEditAssigneeMenuOpen] = useState(false);
 
   useEffect(() => {
     loadProject();
@@ -127,18 +129,20 @@ export const ProjectDetailPage: React.FC = () => {
         formData.description,
         formData.priority,
         assigneeId || undefined,
-        formData.due_date,
+        formData.due_date || undefined,
       );
       setFormData({ title: '', description: '', priority: 'medium', assignee_name: '', due_date: '' });
       setShowTaskForm(false);
+      setIsCreateAssigneeMenuOpen(false);
       await loadProject();
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to create task'));
     }
   };
 
-  const selectAssignee = (name: string, setter: (data: any) => void) => {
+  const selectAssignee = (name: string, setter: (data: any) => void, closeMenu: (open: boolean) => void) => {
     setter((current: any) => ({ ...current, assignee_name: name }));
+    closeMenu(false);
   };
 
   const openEditModal = (task: Task) => {
@@ -154,6 +158,11 @@ export const ProjectDetailPage: React.FC = () => {
       due_date: task.due_date || '',
       status: task.status,
     });
+    setIsEditAssigneeMenuOpen(false);
+  };
+
+  const openTaskDetails = (taskId: string) => {
+    navigate(`/projects/${id}/tasks/${taskId}`);
   };
 
   const handleEditTask = async (e: React.FormEvent) => {
@@ -168,16 +177,37 @@ export const ProjectDetailPage: React.FC = () => {
         return;
       }
 
-      await tasks.update(editingTask.id, {
-        title: editFormData.title,
-        description: editFormData.description,
-        priority: editFormData.priority,
-        assignee_id: assigneeId || null,
-        due_date: editFormData.due_date,
-        status: editFormData.status,
-      });
+      const updates: Record<string, string | null> = {};
+
+      if (editFormData.title !== editingTask.title) {
+        updates.title = editFormData.title;
+      }
+      if (editFormData.description !== (editingTask.description || '')) {
+        updates.description = editFormData.description || null;
+      }
+      if (editFormData.priority !== editingTask.priority) {
+        updates.priority = editFormData.priority;
+      }
+      if ((assigneeId || null) !== editingTask.assignee_id) {
+        updates.assignee_id = assigneeId || null;
+      }
+      if ((editFormData.due_date || null) !== editingTask.due_date) {
+        updates.due_date = editFormData.due_date || null;
+      }
+      if (editFormData.status !== editingTask.status) {
+        updates.status = editFormData.status;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        setEditingTask(null);
+        setIsEditAssigneeMenuOpen(false);
+        return;
+      }
+
+      await tasks.update(editingTask.id, updates);
 
       setEditingTask(null);
+      setIsEditAssigneeMenuOpen(false);
       await loadProject();
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to update task'));
@@ -186,6 +216,7 @@ export const ProjectDetailPage: React.FC = () => {
 
   const closeEditModal = () => {
     setEditingTask(null);
+    setIsEditAssigneeMenuOpen(false);
   };
 
   const toggleStatusFilter = (status: 'todo' | 'in_progress' | 'done') => {
@@ -235,10 +266,10 @@ export const ProjectDetailPage: React.FC = () => {
     ? project.tasks.filter((task: Task) => task.status === selectedStatusFilter)
     : project.tasks;
 
-  const tasksByStatus = {
-    todo: filteredTasks.filter((task: Task) => task.status === 'todo'),
-    in_progress: filteredTasks.filter((task: Task) => task.status === 'in_progress'),
-    done: filteredTasks.filter((task: Task) => task.status === 'done'),
+  const statusCounts = {
+    todo: project.tasks.filter((task: Task) => task.status === 'todo').length,
+    in_progress: project.tasks.filter((task: Task) => task.status === 'in_progress').length,
+    done: project.tasks.filter((task: Task) => task.status === 'done').length,
   };
 
   const getStatusLabel = (status: string) => {
@@ -310,27 +341,38 @@ export const ProjectDetailPage: React.FC = () => {
                 <div className="flex gap-2">
                   <Input
                     value={formData.assignee_name}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData((current: TaskFormData) => ({ ...current, assignee_name: e.target.value }))}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      setFormData((current: TaskFormData) => ({ ...current, assignee_name: e.target.value }));
+                      setIsCreateAssigneeMenuOpen(true);
+                    }}
+                    onFocus={() => setIsCreateAssigneeMenuOpen(true)}
+                    onBlur={() => setTimeout(() => setIsCreateAssigneeMenuOpen(false), 120)}
                     placeholder="Type a name"
                     list="taskflow-assignee-options"
                   />
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setFormData((current: TaskFormData) => ({ ...current, assignee_name: '' }))}
+                    onClick={() => {
+                      setFormData((current: TaskFormData) => ({ ...current, assignee_name: '' }));
+                      setIsCreateAssigneeMenuOpen(false);
+                    }}
                   >
                     Clear
                   </Button>
                 </div>
-                {formData.assignee_name.trim() && (
+                {isCreateAssigneeMenuOpen && formData.assignee_name.trim() && (
                   <div className="rounded-md border border-slate-300 bg-white shadow-md max-h-40 overflow-y-auto">
                     {getMatchingUsers(formData.assignee_name).length > 0
                       ? getMatchingUsers(formData.assignee_name).map((userOption: UserOption, index: number) => (
                           <button
                             key={userOption.id}
                             type="button"
-                            onClick={() => selectAssignee(userOption.name, setFormData)}
-                            className={`w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 transition ${
+                            onMouseDown={(e: React.MouseEvent<HTMLButtonElement>) => e.preventDefault()}
+                            onClick={() => selectAssignee(userOption.name, setFormData, setIsCreateAssigneeMenuOpen)}
+                            className={`w-full text-left px-3 py-2 text-sm transition ${
+                              formData.assignee_name === userOption.name ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-100'
+                            } ${
                               index !== getMatchingUsers(formData.assignee_name).length - 1 ? 'border-b border-slate-200' : ''
                             }`}
                           >
@@ -370,7 +412,7 @@ export const ProjectDetailPage: React.FC = () => {
             variant={selectedStatusFilter === status ? 'default' : 'outline'}
             className={`${selectedStatusFilter === status ? 'ring-2 ring-slate-400' : ''}`}
           >
-            {getStatusLabel(status)} ({tasksByStatus[status].length})
+            {getStatusLabel(status)} ({statusCounts[status]})
           </Button>
         ))}
         {selectedStatusFilter && (
@@ -384,90 +426,90 @@ export const ProjectDetailPage: React.FC = () => {
         )}
       </div>
 
-      {/* Vertical layout - all columns stacked */}
-      <div className="space-y-4">
-        {(['todo', 'in_progress', 'done'] as const).map(status => (
-          <Card key={status} className="bg-slate-50/80">
-            <CardHeader className="pb-3 cursor-pointer bg-slate-100 rounded-t-lg hover:bg-slate-200 transition" onClick={() => toggleStatusFilter(status)}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-slate-700 capitalize">
-                    {getStatusLabel(status)}
-                  </h3>
-                  <CardDescription>{tasksByStatus[status].length} tasks</CardDescription>
-                </div>
-                <Badge className="bg-slate-600 text-white">{tasksByStatus[status].length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4">
-              {tasksByStatus[status].length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8">No tasks in {getStatusLabel(status).toLowerCase()}</p>
-              ) : (
-                <div className="space-y-3">
-                  {tasksByStatus[status].map((task: Task) => (
-                    <div key={task.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{task.title}</p>
-                          {task.description && <p className="text-xs text-slate-600 mt-1">{task.description}</p>}
-                        </div>
-                        <Button
-                          onClick={() => openEditModal(task)}
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-slate-600 hover:text-slate-900"
-                        >
-                          ✎ Edit
-                        </Button>
-                      </div>
-
-                      <div className="mt-3 space-y-1 text-xs text-slate-500">
-                        <p>Created: {formatDate(task.created_at)}</p>
-                        <p>Updated: {formatDate(task.updated_at)}</p>
-                        <p>Due: {formatDate(task.due_date)}</p>
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge className={`${
-                            task.priority === 'high' ? 'bg-red-100 text-red-700' :
-                            task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>
-                            {task.priority}
-                          </Badge>
-                          <Badge className="bg-slate-100 text-slate-700">
-                            {getAssigneeLabel(task.assignee_id)}
-                          </Badge>
-                        </div>
-                        <div className="flex gap-1">
-                          <select
-                            value={task.status}
-                            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleUpdateTaskStatus(task.id, e.target.value)}
-                            className="h-8 text-xs border border-slate-300 rounded px-2 bg-white text-slate-700"
-                          >
-                            <option value="todo">To Do</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="done">Done</option>
-                          </select>
-                          <Button
-                            onClick={() => handleDeleteTask(task.id)}
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2 text-red-600 hover:text-red-700"
-                          >
-                            ✕
-                          </Button>
-                        </div>
-                      </div>
+      <Card className="bg-slate-50/80">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Tasks</CardTitle>
+          <CardDescription>
+            {selectedStatusFilter ? `${getStatusLabel(selectedStatusFilter)} tasks` : 'All tasks'} ({filteredTasks.length})
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-2">
+          {filteredTasks.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-8">No tasks found</p>
+          ) : (
+            <div className="space-y-3">
+              {filteredTasks.map((task: Task) => (
+                <div
+                  key={task.id}
+                  className="cursor-pointer rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md"
+                  onClick={() => openTaskDetails(task.id)}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{task.title}</p>
+                      {task.description && <p className="text-xs text-slate-600 mt-1">{task.description}</p>}
                     </div>
-                  ))}
+                    <Button
+                      onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                        e.stopPropagation();
+                        openEditModal(task);
+                      }}
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-slate-600 hover:text-slate-900"
+                    >
+                      ✎ Edit
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 space-y-1 text-xs text-slate-500">
+                    <p>Created: {formatDate(task.created_at)}</p>
+                    <p>Updated: {formatDate(task.updated_at)}</p>
+                    <p>Due: {formatDate(task.due_date)}</p>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge className={`${
+                        task.priority === 'high' ? 'bg-red-100 text-red-700' :
+                        task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-green-100 text-green-700'
+                      }`}>
+                        {task.priority}
+                      </Badge>
+                      <Badge className="bg-slate-100 text-slate-700">{getStatusLabel(task.status)}</Badge>
+                      <Badge className="bg-slate-100 text-slate-700">{getAssigneeLabel(task.assignee_id)}</Badge>
+                    </div>
+                    <div className="flex gap-1">
+                      <select
+                        value={task.status}
+                        onClick={(e: React.MouseEvent<HTMLSelectElement>) => e.stopPropagation()}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleUpdateTaskStatus(task.id, e.target.value)}
+                        className="h-8 text-xs border border-slate-300 rounded px-2 bg-white text-slate-700"
+                      >
+                        <option value="todo">To Do</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="done">Done</option>
+                      </select>
+                      <Button
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                          e.stopPropagation();
+                          handleDeleteTask(task.id);
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-red-600 hover:text-red-700"
+                      >
+                        ✕
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Edit Task Modal */}
       {editingTask && (
@@ -533,27 +575,38 @@ export const ProjectDetailPage: React.FC = () => {
                   <div className="flex gap-2">
                     <Input
                       value={editFormData.assignee_name}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditFormData((current: EditFormData) => ({ ...current, assignee_name: e.target.value }))}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        setEditFormData((current: EditFormData) => ({ ...current, assignee_name: e.target.value }));
+                        setIsEditAssigneeMenuOpen(true);
+                      }}
+                      onFocus={() => setIsEditAssigneeMenuOpen(true)}
+                      onBlur={() => setTimeout(() => setIsEditAssigneeMenuOpen(false), 120)}
                       placeholder="Type a name"
                       list="taskflow-assignee-options"
                     />
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setEditFormData((current: EditFormData) => ({ ...current, assignee_name: '' }))}
+                      onClick={() => {
+                        setEditFormData((current: EditFormData) => ({ ...current, assignee_name: '' }));
+                        setIsEditAssigneeMenuOpen(false);
+                      }}
                     >
                       Clear
                     </Button>
                   </div>
-                  {editFormData.assignee_name.trim() && (
+                  {isEditAssigneeMenuOpen && editFormData.assignee_name.trim() && (
                     <div className="rounded-md border border-slate-300 bg-white shadow-md max-h-40 overflow-y-auto">
                       {getMatchingUsers(editFormData.assignee_name).length > 0
                         ? getMatchingUsers(editFormData.assignee_name).map((userOption: UserOption, index: number) => (
                             <button
                               key={userOption.id}
                               type="button"
-                              onClick={() => selectAssignee(userOption.name, setEditFormData)}
-                              className={`w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 transition ${
+                              onMouseDown={(e: React.MouseEvent<HTMLButtonElement>) => e.preventDefault()}
+                              onClick={() => selectAssignee(userOption.name, setEditFormData, setIsEditAssigneeMenuOpen)}
+                              className={`w-full text-left px-3 py-2 text-sm transition ${
+                                editFormData.assignee_name === userOption.name ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-100'
+                              } ${
                                 index !== getMatchingUsers(editFormData.assignee_name).length - 1 ? 'border-b border-slate-200' : ''
                               }`}
                             >

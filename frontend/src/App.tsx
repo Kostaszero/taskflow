@@ -4,6 +4,7 @@ import { useAuthContext } from './hooks/useAuth';
 import { AuthPage } from './pages/AuthPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { TaskDetailPage } from './pages/TaskDetailPage';
 
 const AppShell: React.FC = () => {
   const { user, logout } = useAuthContext();
@@ -69,6 +70,7 @@ export const App: React.FC = () => {
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        <Route path="/projects/:id/tasks/:taskId" element={<TaskDetailPage />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? '/projects' : '/login'} replace />} />
     </Routes>
