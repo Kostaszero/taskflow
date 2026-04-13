@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projects, tasks } from '../utils/api';
+import { projects, tasks, users } from '../utils/api';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Select } from '../components/ui/select';
+import { Textarea } from '../components/ui/textarea';
 
 interface Task {
   id: string;
@@ -13,6 +19,12 @@ interface Task {
   created_at: string;
 }
 
+interface UserOption {
+  id: string;
+  name: string;
+  email: string;
+}
+
 interface Project {
   id: string;
   name: string;
@@ -20,19 +32,38 @@ interface Project {
   tasks: Task[];
 }
 
+interface TaskFormData {
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high';
+  assignee_id: string;
+  due_date: string;
+}
+
 export const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<{ status?: string }>({});
+  const [filter] = useState<{ status?: string }>({});
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [formData, setFormData] = useState({ title: '', description: '', priority: 'medium', due_date: '' });
+  const [formData, setFormData] = useState<TaskFormData>({ title: '', description: '', priority: 'medium', assignee_id: '', due_date: '' });
 
   useEffect(() => {
     loadProject();
+    loadUsers();
   }, [id]);
+
+  const loadUsers = async () => {
+    try {
+      const response = await users.list();
+      setUserOptions(response.data.users || []);
+    } catch {
+      setUserOptions([]);
+    }
+  };
 
   const loadProject = async () => {
     try {
@@ -50,13 +81,38 @@ export const ProjectDetailPage: React.FC = () => {
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await tasks.create(id!, formData.title, formData.description, formData.priority, undefined, formData.due_date);
-      setFormData({ title: '', description: '', priority: 'medium', due_date: '' });
+      await tasks.create(
+        id!,
+        formData.title,
+        formData.description,
+        formData.priority,
+        formData.assignee_id || undefined,
+        formData.due_date,
+      );
+      setFormData({ title: '', description: '', priority: 'medium', assignee_id: '', due_date: '' });
       setShowTaskForm(false);
       await loadProject();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create task');
     }
+  };
+
+  const handleAssignTask = async (taskId: string, assigneeId: string) => {
+    try {
+      await tasks.update(taskId, { assignee_id: assigneeId || null });
+      await loadProject();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to assign task');
+    }
+  };
+
+  const getAssigneeLabel = (assigneeId: string | null) => {
+    if (!assigneeId) {
+      return 'Unassigned';
+    }
+
+    const match = userOptions.find((userOption: UserOption) => userOption.id === assigneeId);
+    return match ? match.name : 'Assigned';
   };
 
   const handleUpdateTaskStatus = async (taskId: string, newStatus: string) => {
@@ -81,129 +137,154 @@ export const ProjectDetailPage: React.FC = () => {
   if (loading) return <div className="p-8 text-center">Loading project...</div>;
   if (!project) return <div className="p-8 text-center">Project not found</div>;
 
-  const filteredTasks = project.tasks.filter(task => 
+  const filteredTasks = project.tasks.filter((task: Task) => 
     !filter.status || task.status === filter.status
   );
 
   const tasksByStatus = {
-    todo: filteredTasks.filter(t => t.status === 'todo'),
-    in_progress: filteredTasks.filter(t => t.status === 'in_progress'),
-    done: filteredTasks.filter(t => t.status === 'done'),
+    todo: filteredTasks.filter((task: Task) => task.status === 'todo'),
+    in_progress: filteredTasks.filter((task: Task) => task.status === 'in_progress'),
+    done: filteredTasks.filter((task: Task) => task.status === 'done'),
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="mx-auto max-w-6xl p-6">
+      <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-start">
         <div>
-          <button onClick={() => navigate('/projects')} className="text-blue-600 hover:text-blue-700 mb-2">
+          <Button onClick={() => navigate('/projects')} variant="ghost" className="mb-2 px-0">
             ← Back to Projects
-          </button>
-          <h1 className="text-3xl font-bold">{project.name}</h1>
+          </Button>
+          <h1 className="text-4xl font-semibold tracking-tight">{project.name}</h1>
           {project.description && <p className="text-slate-600 mt-2">{project.description}</p>}
         </div>
-        <button
+        <Button
           onClick={() => setShowTaskForm(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          size="lg"
         >
           New Task
-        </button>
+        </Button>
       </div>
 
-      {error && <div className="bg-red-50 text-red-600 p-4 rounded mb-4">{error}</div>}
+      {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-4 text-red-600">{error}</div>}
 
       {showTaskForm && (
-        <div className="bg-slate-100 p-4 rounded mb-6">
-          <h2 className="font-bold mb-4">Create Task</h2>
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create Task</CardTitle>
+            <CardDescription>Add a new task to this project board.</CardDescription>
+          </CardHeader>
+          <CardContent>
           <form onSubmit={handleCreateTask} className="space-y-3">
-            <input
+            <Input
               type="text"
               placeholder="Task title"
               value={formData.title}
-              onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData((current: TaskFormData) => ({ ...current, title: e.target.value }))}
               required
-              className="w-full px-4 py-2 border border-slate-300 rounded"
             />
-            <textarea
+            <Textarea
               placeholder="Description (optional)"
               value={formData.description}
-              onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-300 rounded"
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData((current: TaskFormData) => ({ ...current, description: e.target.value }))}
               rows={2}
             />
-            <select
+            <Select
               value={formData.priority}
-              onChange={(e) => setFormData(p => ({ ...p, priority: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-300 rounded"
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFormData((current: TaskFormData) => ({ ...current, priority: e.target.value as TaskFormData['priority'] }))}
             >
               <option value="low">Low Priority</option>
               <option value="medium">Medium Priority</option>
               <option value="high">High Priority</option>
-            </select>
-            <input
+            </Select>
+            <Select
+              value={formData.assignee_id}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFormData((current: TaskFormData) => ({ ...current, assignee_id: e.target.value }))}
+            >
+              <option value="">Unassigned</option>
+              {userOptions.map((userOption: UserOption) => (
+                <option key={userOption.id} value={userOption.id}>
+                  {userOption.name}
+                </option>
+              ))}
+            </Select>
+            <Input
               type="date"
               value={formData.due_date}
-              onChange={(e) => setFormData(p => ({ ...p, due_date: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-300 rounded"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData((current: TaskFormData) => ({ ...current, due_date: e.target.value }))}
             />
             <div className="flex gap-2">
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
-                Create
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowTaskForm(false)}
-                className="bg-slate-300 text-slate-700 px-4 py-2 rounded hover:bg-slate-400"
-              >
-                Cancel
-              </button>
+              <Button type="submit">Create</Button>
+              <Button type="button" variant="secondary" onClick={() => setShowTaskForm(false)}>Cancel</Button>
             </div>
           </form>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {['todo', 'in_progress', 'done'].map(status => (
-          <div key={status} className="bg-slate-100 rounded-lg p-4">
-            <h3 className="font-bold mb-4 text-slate-700 capitalize">
+          <Card key={status} className="bg-slate-50/80">
+            <CardHeader className="pb-3">
+            <h3 className="font-bold text-slate-700 capitalize">
               {status === 'in_progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1)}
             </h3>
-            <div className="space-y-2">
-              {tasksByStatus[status as keyof typeof tasksByStatus].map(task => (
-                <div key={task.id} className="bg-white border border-slate-300 rounded p-3">
+            <CardDescription>{tasksByStatus[status as keyof typeof tasksByStatus].length} tasks</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {tasksByStatus[status as keyof typeof tasksByStatus].map((task: Task) => (
+                <div key={task.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                   <p className="font-medium text-sm">{task.title}</p>
                   {task.description && <p className="text-xs text-slate-600 mt-1">{task.description}</p>}
                   <div className="flex justify-between items-center mt-2">
-                    <span className={`text-xs px-2 py-1 rounded ${
+                    <div className="flex items-center gap-2">
+                    <Badge className={`${
                       task.priority === 'high' ? 'bg-red-100 text-red-700' :
                       task.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
                       'bg-green-100 text-green-700'
                     }`}>
                       {task.priority}
-                    </span>
-                    <menu className="flex gap-1 text-xs">
+                    </Badge>
+                    <Badge className="bg-slate-100 text-slate-700">
+                      {getAssigneeLabel(task.assignee_id)}
+                    </Badge>
+                    </div>
+                    <div className="flex gap-1 text-xs">
                       {status !== 'done' && (
-                        <button
+                        <Button
                           onClick={() => handleUpdateTaskStatus(task.id, status === 'todo' ? 'in_progress' : 'done')}
-                          className="text-blue-600 hover:text-blue-700"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-blue-600 hover:text-blue-700"
                         >
                           ▶
-                        </button>
+                        </Button>
                       )}
-                      <button
+                      <Button
                         onClick={() => handleDeleteTask(task.id)}
-                        className="text-red-600 hover:text-red-700"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-red-600 hover:text-red-700"
                       >
                         ✕
-                      </button>
-                    </menu>
+                      </Button>
+                    </div>
                   </div>
+                  <Select
+                    value={task.assignee_id || ''}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => handleAssignTask(task.id, e.target.value)}
+                    className="mt-3 h-9 text-xs"
+                  >
+                    <option value="">Unassigned</option>
+                    {userOptions.map((userOption: UserOption) => (
+                      <option key={userOption.id} value={userOption.id}>
+                        {userOption.name}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
               ))}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </div>

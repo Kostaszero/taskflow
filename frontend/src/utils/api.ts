@@ -53,6 +53,10 @@ export const projects = {
   stats: (id: string) => api.get(`/projects/${id}/stats`),
 };
 
+export const users = {
+  list: () => api.get('/users'),
+};
+
 export const tasks = {
   list: (projectId: string, status?: string, assignee?: string) =>
     api.get(`/projects/${projectId}/tasks`, { params: { status, assignee } }),

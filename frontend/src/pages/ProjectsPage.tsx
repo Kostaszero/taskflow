@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { projects } from '../utils/api';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 
 interface Project {
   id: string;
@@ -58,88 +62,88 @@ export const ProjectsPage: React.FC = () => {
   if (loading) return <div className="p-8 text-center">Loading projects...</div>;
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Projects</h1>
-        <button
+    <div className="mx-auto max-w-6xl p-6">
+      <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div>
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Workspace</p>
+          <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-950">Projects</h1>
+          <p className="mt-2 text-slate-600">Open a project to create and move tasks across its execution stages.</p>
+        </div>
+        <Button
           onClick={() => setShowCreateForm(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          size="lg"
         >
           New Project
-        </button>
+        </Button>
       </div>
 
-      {error && <div className="bg-red-50 text-red-600 p-4 rounded mb-4">{error}</div>}
+      {error && <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-4 text-red-600">{error}</div>}
 
       {showCreateForm && (
-        <div className="bg-slate-100 p-4 rounded mb-6">
-          <h2 className="font-bold mb-4">Create Project</h2>
+        <Card className="mb-6 border-slate-200 bg-white">
+          <CardHeader>
+            <CardTitle>Create Project</CardTitle>
+            <CardDescription>Start a new project space and add tasks inside it.</CardDescription>
+          </CardHeader>
+          <CardContent>
           <form onSubmit={handleCreateProject} className="space-y-3">
-            <input
+            <Input
               type="text"
               placeholder="Project name"
               value={formData.name}
               onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))}
               required
-              className="w-full px-4 py-2 border border-slate-300 rounded"
             />
-            <textarea
+            <Textarea
               placeholder="Description (optional)"
               value={formData.description}
               onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))}
-              className="w-full px-4 py-2 border border-slate-300 rounded"
               rows={3}
             />
             <div className="flex gap-2">
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
-                Create
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateForm(false)}
-                className="bg-slate-300 text-slate-700 px-4 py-2 rounded hover:bg-slate-400"
-              >
-                Cancel
-              </button>
+              <Button type="submit">Create</Button>
+              <Button type="button" variant="secondary" onClick={() => setShowCreateForm(false)}>Cancel</Button>
             </div>
           </form>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {projectsList.length === 0 ? (
-        <div className="text-center py-12 bg-slate-50 rounded">
+        <Card className="border-dashed border-slate-300 bg-slate-50/80 py-12 text-center">
+          <CardContent>
           <p className="text-slate-500 mb-4">No projects yet</p>
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            Create Your First Project
-          </button>
-        </div>
+          <Button onClick={() => setShowCreateForm(true)}>Create Your First Project</Button>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projectsList.map(project => (
             <Link
               key={project.id}
               to={`/projects/${project.id}`}
-              className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-lg transition no-underline"
+              className="no-underline"
             >
-              <h3 className="font-bold text-lg text-slate-900 mb-2">{project.name}</h3>
-              {project.description && (
-                <p className="text-slate-600 text-sm mb-4">{project.description}</p>
-              )}
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleDeleteProject(project.id);
-                }}
-                className="text-red-600 text-sm hover:text-red-700"
-              >
-                Delete
-              </button>
+              <Card className="h-full transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg">
+                <CardHeader>
+                  <CardTitle className="text-lg">{project.name}</CardTitle>
+                  <CardDescription>{project.description || 'No description yet.'}</CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between pt-0">
+                  <span className="text-xs text-slate-500">Open project</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleDeleteProject(project.id);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </CardContent>
+              </Card>
             </Link>
           ))}
         </div>

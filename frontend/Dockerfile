@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-COPY tsconfig.json tsconfig.node.json vite.config.ts ./
+COPY tsconfig.json tsconfig.node.json vite.config.ts tailwind.config.js postcss.config.js ./
 
 RUN npm ci
 
